@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { MAX_PARTS_PER_PERSON } from '../constants';
-import { Khatma, KhatmaSlot } from '../types';
+import { Khatma, KhatmaSlot, ParticipantStats } from '../types';
 
 interface Props {
   khatma: Khatma;
+  participantsStats?: ParticipantStats[];
   onUpdate: (updatedKhatma: Khatma) => void;
   onBack: () => void;
 }
@@ -16,7 +17,7 @@ interface SlotGroup {
   displayRange: string;
 }
 
-export const KhatmaDetail: React.FC<Props> = ({ khatma, onUpdate, onBack }) => {
+export const KhatmaDetail: React.FC<Props> = ({ khatma, participantsStats = [], onUpdate, onBack }) => {
   const [editSlotId, setEditSlotId] = useState<string | null>(null);
   const [tempName, setTempName] = useState('');
   
@@ -31,6 +32,7 @@ export const KhatmaDetail: React.FC<Props> = ({ khatma, onUpdate, onBack }) => {
       setRangeEnd(firstAvailable.startJuz);
     }
   }, [khatma.id]);
+
 
   const getGroupedSlots = (): SlotGroup[] => {
     const groups: SlotGroup[] = [];
@@ -140,8 +142,9 @@ export const KhatmaDetail: React.FC<Props> = ({ khatma, onUpdate, onBack }) => {
       return;
     }
 
+    const now = Date.now();
     const updatedSlots = khatma.slots.map(s => 
-      s.id === slotId ? { ...s, reservedBy: name } : s
+      s.id === slotId ? { ...s, reservedBy: name, reservedAt: now } : s
     );
     onUpdate({ ...khatma, slots: updatedSlots });
     setEditSlotId(null);
@@ -167,14 +170,16 @@ export const KhatmaDetail: React.FC<Props> = ({ khatma, onUpdate, onBack }) => {
     }
 
     let assignedCount = 0;
+    const now = Date.now();
     const updatedSlots = khatma.slots.map(slot => {
       if (assignedCount >= remainingCapacity) return slot;
       if (slot.startJuz >= start && slot.startJuz <= end && !slot.reservedBy) {
         assignedCount++;
-        return { ...slot, reservedBy: name };
+        return { ...slot, reservedBy: name, reservedAt: now };
       }
       return slot;
     });
+
 
     if (assignedCount === 0) {
       alert("هذه الأجزاء محجوزة مسبقاً أو النطاق خارج الحدود");
@@ -232,49 +237,90 @@ export const KhatmaDetail: React.FC<Props> = ({ khatma, onUpdate, onBack }) => {
           <span className="bg-emerald-500 text-white w-6 h-6 rounded-lg flex items-center justify-center text-[10px]">⚡</span> 
           حجز سريع لأجزاء متعددة
         </h3>
-        <form onSubmit={handleBulkReserve} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-          <div className="md:col-span-1">
-            <label className="block text-[10px] font-black text-gray-400 mb-1 uppercase tracking-wider">الاسم</label>
-            <input
-              type="text"
-              value={bulkName}
-              onChange={(e) => setBulkName(e.target.value)}
-              placeholder="اسم الشخص..."
-              className="w-full border-2 border-gray-100 rounded-2xl px-4 py-3 text-sm focus:border-emerald-500 outline-none transition-all bg-white font-bold"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2 md:col-span-2">
+        <form onSubmit={handleBulkReserve} className="space-y-4">
+          {participantsStats.length > 0 && (
             <div>
-              <label className="block text-[10px] font-black text-gray-400 mb-1 uppercase tracking-wider">من جزء</label>
+              <label className="block text-[10px] font-black text-emerald-700 mb-1 uppercase tracking-wider">
+                ⭐ اختر من المشاركين المميزين / الحاليين (أو اكتب اسماً بالأسفل)
+              </label>
+              <select
+                value={participantsStats.some(p => p.name === bulkName) ? bulkName : ''}
+                onChange={(e) => {
+                  if (e.target.value) setBulkName(e.target.value);
+                }}
+                className="w-full border-2 border-emerald-100 rounded-2xl px-4 py-2.5 text-sm focus:border-emerald-500 outline-none transition-all bg-white font-bold text-gray-800 cursor-pointer"
+              >
+                <option value="">-- اختر المشارك من القائمة المنسدلة --</option>
+                {participantsStats.filter(p => p.isFeatured).length > 0 && (
+                  <optgroup label="⭐ المشاركون المميزون">
+                    {participantsStats
+                      .filter(p => p.isFeatured)
+                      .map(p => (
+                        <option key={`bulk-feat-${p.name}`} value={p.name}>
+                          ⭐ {p.name} (حجز في هذه الخاتمة: {getAssignedPartsForUser(p.name)}/{MAX_PARTS_PER_PERSON})
+                        </option>
+                      ))}
+                  </optgroup>
+                )}
+                {participantsStats.filter(p => !p.isFeatured).length > 0 && (
+                  <optgroup label="👥 مشاركون آخرون">
+                    {participantsStats
+                      .filter(p => !p.isFeatured)
+                      .map(p => (
+                        <option key={`bulk-other-${p.name}`} value={p.name}>
+                          👤 {p.name} (حجز في هذه الخاتمة: {getAssignedPartsForUser(p.name)}/{MAX_PARTS_PER_PERSON})
+                        </option>
+                      ))}
+                  </optgroup>
+                )}
+              </select>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+            <div className="md:col-span-1">
+              <label className="block text-[10px] font-black text-gray-400 mb-1 uppercase tracking-wider">الاسم</label>
               <input
-                type="number"
-                min="1"
-                max="30"
-                value={rangeStart}
-                onFocus={handleInputFocus}
-                onChange={(e) => setRangeStart(e.target.value)}
+                type="text"
+                value={bulkName}
+                onChange={(e) => setBulkName(e.target.value)}
+                placeholder="اسم الشخص..."
                 className="w-full border-2 border-gray-100 rounded-2xl px-4 py-3 text-sm focus:border-emerald-500 outline-none transition-all bg-white font-bold"
               />
             </div>
-            <div>
-              <label className="block text-[10px] font-black text-gray-400 mb-1 uppercase tracking-wider">إلى جزء</label>
-              <input
-                type="number"
-                min="1"
-                max="30"
-                value={rangeEnd}
-                onFocus={handleInputFocus}
-                onChange={(e) => setRangeEnd(e.target.value)}
-                className="w-full border-2 border-gray-100 rounded-2xl px-4 py-3 text-sm focus:border-emerald-500 outline-none transition-all bg-white font-bold"
-              />
+            <div className="grid grid-cols-2 gap-2 md:col-span-2">
+              <div>
+                <label className="block text-[10px] font-black text-gray-400 mb-1 uppercase tracking-wider">من جزء</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="30"
+                  value={rangeStart}
+                  onFocus={handleInputFocus}
+                  onChange={(e) => setRangeStart(e.target.value)}
+                  className="w-full border-2 border-gray-100 rounded-2xl px-4 py-3 text-sm focus:border-emerald-500 outline-none transition-all bg-white font-bold"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black text-gray-400 mb-1 uppercase tracking-wider">إلى جزء</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="30"
+                  value={rangeEnd}
+                  onFocus={handleInputFocus}
+                  onChange={(e) => setRangeEnd(e.target.value)}
+                  className="w-full border-2 border-gray-100 rounded-2xl px-4 py-3 text-sm focus:border-emerald-500 outline-none transition-all bg-white font-bold"
+                />
+              </div>
             </div>
+            <button
+              type="submit"
+              className="bg-emerald-600 text-white font-black py-2 px-4 rounded-2xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 text-sm h-[52px] active:scale-95"
+            >
+              تأكيد الحجز
+            </button>
           </div>
-          <button
-            type="submit"
-            className="bg-emerald-600 text-white font-black py-2 px-4 rounded-2xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 text-sm h-[52px] active:scale-95"
-          >
-            تأكيد الحجز
-          </button>
         </form>
       </div>
 
@@ -308,21 +354,39 @@ export const KhatmaDetail: React.FC<Props> = ({ khatma, onUpdate, onBack }) => {
                 <div className="flex-1 min-w-0">
                   {!isReserved ? (
                     editSlotId === group.slots[0].id ? (
-                      <div className="flex gap-2">
-                        <input
-                          autoFocus
-                          className="w-full border-2 border-emerald-300 rounded-2xl px-4 py-2 text-sm focus:outline-none font-bold"
-                          value={tempName}
-                          placeholder="اسم القارئ..."
-                          onChange={(e) => setTempName(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && saveReservation(group.slots[0].id)}
-                        />
-                        <button 
-                          onClick={() => saveReservation(group.slots[0].id)}
-                          className="bg-emerald-500 text-white px-5 py-2 rounded-2xl text-sm font-black hover:bg-emerald-600"
-                        >
-                          حفظ
-                        </button>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        {participantsStats.length > 0 && (
+                          <select
+                            value={participantsStats.some(p => p.name === tempName) ? tempName : ''}
+                            onChange={(e) => {
+                              if (e.target.value) setTempName(e.target.value);
+                            }}
+                            className="border-2 border-emerald-200 rounded-2xl px-3 py-2 text-xs font-bold bg-emerald-50/50 text-emerald-900 focus:outline-none"
+                          >
+                            <option value="">اختر من القائمة...</option>
+                            {participantsStats.map(p => (
+                              <option key={`slot-opt-${p.name}`} value={p.name}>
+                                {p.isFeatured ? '⭐ ' : ''}{p.name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        <div className="flex gap-2 flex-1">
+                          <input
+                            autoFocus
+                            className="w-full border-2 border-emerald-300 rounded-2xl px-4 py-2 text-sm focus:outline-none font-bold"
+                            value={tempName}
+                            placeholder="اسم القارئ..."
+                            onChange={(e) => setTempName(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && saveReservation(group.slots[0].id)}
+                          />
+                          <button 
+                            onClick={() => saveReservation(group.slots[0].id)}
+                            className="bg-emerald-500 text-white px-5 py-2 rounded-2xl text-sm font-black hover:bg-emerald-600"
+                          >
+                            حفظ
+                          </button>
+                        </div>
                       </div>
                     ) : (
                       <div 
@@ -334,6 +398,7 @@ export const KhatmaDetail: React.FC<Props> = ({ khatma, onUpdate, onBack }) => {
                       </div>
                     )
                   ) : (
+
                     <div className="flex flex-col">
                       <span className="text-[10px] text-emerald-600 font-black mb-1 flex items-center gap-1">
                          <span className="w-1 h-1 bg-emerald-600 rounded-full animate-pulse"></span>
